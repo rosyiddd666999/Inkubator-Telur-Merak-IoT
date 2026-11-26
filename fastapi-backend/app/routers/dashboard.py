@@ -2,12 +2,13 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from ..database import get_db
-from ..models import Egg, Chick, IncubatorStatus, FinanceEntry, EggAkhir, FinanceTipe
+from ..models import Egg, Chick, IncubatorStatus, FinanceEntry, FinanceTipe
 from ..schemas import DashboardSummary
 from ..auth import require_role, get_current_user
+from ..kanonik import AKHIR_SELESAI
 from .incubator import resolve_terakhir_rotasi
 
 logger = logging.getLogger(__name__)
@@ -34,9 +35,11 @@ def dashboard_summary(current_user=Depends(require_role("pemilik", "staff")), db
     crash dengan 500 mentah.
     """
     try:
+        # Telur "aktif" = belum menetas/gagal/dibuang. Sebelumnya dipakai
+        # `akhir NOT IN ('Menetas','Gagal')`, padahal frontend menulis
+        # 'Gagal Tetas' dan 'Dibuang' — dua nilai itu justru dihitung aktif.
         total_telur_aktif = db.query(func.count(Egg.id)).filter(
-            Egg.akhir != EggAkhir.MENETAS,
-            Egg.akhir != EggAkhir.GAGAL,
+            or_(Egg.akhir.is_(None), ~Egg.akhir.in_(AKHIR_SELESAI))
         ).scalar() or 0
 
         now = datetime.utcnow()

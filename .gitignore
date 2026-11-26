@@ -20,6 +20,8 @@ venv/
 # Build outputs
 # dist/ (di-track agar server STB langsung dapat hasil build tanpa perlu build node di STB)
 dist-ssr/
+# salinan public/ yang ikut ter-copy saat vite build (bukan aset halaman)
+dist/images/
 *.local
 out/
 
@@ -51,6 +53,9 @@ esp32/*.ino
 *.rar
 *.zip
 *.tar.gz
+
+# Dump database (berisi data pengguna — jangan pernah masuk repo)
+backups/
 
 # OpenCode skills lokal
 opencode-skills/

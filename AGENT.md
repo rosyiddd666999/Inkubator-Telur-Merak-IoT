@@ -8,18 +8,24 @@ Panduan ini digunakan oleh AI coding agent (Claude Code) untuk membangun dan men
 
 - **Backend**: FastAPI (Python)
 - **ORM**: SQLAlchemy
-- **Database**: MySQL (via Docker Compose) / SQLite (lokal, fallback jika `MYSQL_HOST` tidak di-set)
+- **Database**: MySQL 8 (wajib, via Docker Compose). `app/database.py` membaca `MYSQL_*` dan **raise saat import** bila tidak diset — tidak ada fallback SQLite.
 - **Validation**: Pydantic (schemas.py)
 - **Auth**: JWT (python-jose) + bcrypt (passlib)
 - **Struktur folder existing**:
   ```
   fastapi-backend/
     app/
-      main.py       # entrypoint & endpoints
-      database.py   # koneksi database
-      models.py     # SQLAlchemy models
-      schemas.py    # Pydantic schemas
-      auth.py       # (baru) logic JWT & role checker
+      main.py          # entrypoint, lifespan: create_all -> migrasi -> scheduler -> retensi
+      database.py      # koneksi database (MYSQL_* wajib)
+      models.py        # SQLAlchemy models
+      schemas.py       # Pydantic schemas
+      auth.py          # logic JWT & role checker
+      silsilah.py      # validasi ID/silsilah/gender
+      kanonik.py       # nilai kanonik kolom VARCHAR "enum" (sumber kebenaran)
+      migrate.py       # runner migrasi idempoten (python -m app.migrate)
+      verify_schema.py # cek drift skema DB vs model (python -m app.verify_schema)
+      retention.py     # pembuangan baris lama (retensi)
+    migrations/legacy/ # arsip migrasi SQL manual lama (jangan dijalankan ulang)
   ```
 
 ## 2. Prinsip Umum
@@ -98,11 +104,11 @@ Breeder
 Egg
 - id: str (PK, "JB01BB02-01" = {induk_jantan}{induk_betina}-{nomor})
 - slot: int (unique, 1-100 — posisi fisik di inkubator)
-- induk_jantan_id: str (FK -> Breeder.id, required)
-- induk_betina_id: str (FK -> Breeder.id, required)
+- induk_jantan_id: str (FK -> Breeder.id, nullable — kosong = belum diketahui)
+- induk_betina_id: str (FK -> Breeder.id, nullable)
 - tanggalMasuk: str (ISO date)
 - fertilitas: enum(Fertil, Infertil, Belum dicek)
-- akhir: enum(Menetas, Gagal, Proses)
+- akhir: enum(Menetas, Gagal Tetas, Dibuang, Proses)  # nilai kanonik: app/kanonik.py
 - catatan: text (nullable)
 ```
 
@@ -259,11 +265,13 @@ Dibuat otomatis oleh sistem saat data telemetry masuk dan nilainya keluar dari `
 
 ## 6. Business Logic Notes untuk Agent
 
-1. **Auto-alert**: setiap kali `POST /api/incubator/status` diterima, cek apakah `suhu_sekarang` / `kelembapan_sekarang` keluar dari range `IncubatorSettings`. Jika ya, buat record baru di tabel `Alert`.
+1. **Auto-alert**: setiap kali `POST /api/incubator/status` diterima, cek apakah `suhu_sekarang` / `kelembapan_sekarang` keluar dari range `IncubatorSettings`. Jika ya, buat record di tabel `Alert`. **Dedupe** (`ALERT_DEDUPE_MENIT`, default 30): selama masih ada alert tipe sama yang belum dibaca dalam jendela itu, cukup perbarui pesan & waktunya — jangan tambah baris (tanpa ini tabel alert menumpuk ribuan baris). Bacaan `Alert.tipe` di response memakai **nilai enum huruf kecil** (`rotasi_gagal`), sedangkan DB menyimpan **nama enum** (`ROTASI_GAGAL`).
 2. **Breeder performance**: jangan simpan sebagai kolom statis, hitung on-the-fly via query saat endpoint `/api/breeders/compare` atau `/api/breeders/{id}` dipanggil (join ke Egg dan Chick).
-3. **Dashboard summary**: response harus beda tergantung role — field `finance_summary` hanya muncul kalau requester adalah `pemilik`.
-4. **Chick auto-link**: saat create Chick, ambil `induk_jantan_id` dan `induk_betina_id` dari Egg terkait (via `egg_id`), simpan sebagai reference (bukan duplikasi wajib, tapi bisa di-denormalisasi untuk query cepat — keputusan teknis di tangan agent).
-4b. **Aturan edit ID silsilah**: field parent/induk (`jenis_kelamin`, `parent_*`, `induk_*`, `egg_id`) terkunci saat PUT — ganti prefix ditolak `422`. Rename hanya suffix nomor; ditolak `400` bila ID sudah dipakai atau objek sudah punya turunan (telur punya anakan, breeder punya turunan). Detail implementasi: `fastapi-backend/app/silsilah.py`.
+3. **Dashboard summary**: response harus beda tergantung role — field `finance_summary` hanya muncul kalau requester adalah `pemilik`. "Telur aktif" = `akhir IS NULL OR akhir NOT IN (Menetas, Gagal Tetas, Gagal, Dibuang)` (lihat `AKHIR_SELESAI` di `app/kanonik.py`).
+4. **Chick auto-link**: saat create Chick, `induk_jantan_id`/`induk_betina_id` disalin dari Egg terkait. Saat induk telur diubah lewat `PUT /api/eggs/{id}`, induk anak ikut disinkronkan (telur = sumber kebenaran). `egg_id` anak **tidak bisa diganti** (PUT menolak `422`), dan `DELETE /api/eggs/{id}` menolak `400` bila telur sudah punya anak (FK RESTRICT).
+4b. **Aturan edit silsilah**: `jenis_kelamin`, `parent_*`, `induk_*` bebas diedit; **ID tidak pernah berubah**. Ganti `jenis_kelamin` breeder yang masih dirujuk relasi lain (induk telur/anak, parent turunan) ditolak `422` lengkap dengan daftar penghalangnya. Rename hanya suffix nomor; ditolak `400` bila ID sudah dipakai atau objek sudah punya turunan. Detail: `fastapi-backend/app/silsilah.py`.
+4c. **Nilai kanonik**: kolom VARCHAR "enum" (`asal`, `status`, `varian_warna`, `fertilitas`, `akhir`, `chicks.status`, ...) dinormalisasi saat create/update lewat `app/kanonik.py` (satu sumber kebenaran untuk migrasi data + API). Nilai tak dikenal tidak ditolak, hanya dikembalikan apa adanya.
+4d. **Retensi**: `app/retention.py` membuang `incubator_status` (>30 hari / >2000 baris) dan `alerts` (>90 hari) saat startup + scheduler harian 03:17; konfigurasi lewat `RETENTION_*`. `GET /api/alerts` terpaginasi (`limit` default 100, `limit=0` = semua, `offset`, `unread`).
 5. **Dashboard & data lain**: manual refresh saja, TIDAK perlu WebSocket.
 6. **Notifikasi**: TIDAK perlu push server (Firebase/OneSignal). Cukup simpan di DB, mobile app polling endpoint `/api/alerts` sendiri.
 

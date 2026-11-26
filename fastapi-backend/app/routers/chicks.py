@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
 from ..models import Chick, Egg, EggAkhir
-from ..schemas import ChickCreate, ChickResponse
+from ..schemas import ChickCreate, ChickResponse, ChickUpdate
 from ..auth import require_role
+from ..kanonik import canonical
 
 router = APIRouter(prefix="/api/chicks", tags=["Chick"])
 
@@ -53,6 +54,7 @@ def create_chick(chick_data: ChickCreate, current_user=Depends(require_role("pem
 
     data["induk_jantan_id"] = egg.induk_jantan_id
     data["induk_betina_id"] = egg.induk_betina_id
+    data["status"] = canonical("chicks", "status", data.get("status"))
 
     chick = Chick(**data)
     egg.akhir = EggAkhir.MENETAS if hasattr(EggAkhir, 'MENETAS') else "Menetas"
@@ -63,12 +65,31 @@ def create_chick(chick_data: ChickCreate, current_user=Depends(require_role("pem
 
 
 @router.put("/{chick_id}", response_model=ChickResponse)
-def update_chick(chick_id: str, chick_data: ChickCreate, current_user=Depends(require_role("pemilik", "staff")), db: Session = Depends(get_db)):
+def update_chick(
+    chick_id: str,
+    chick_data: ChickUpdate,
+    current_user=Depends(require_role("pemilik", "staff")),
+    db: Session = Depends(get_db),
+):
+    """PUT parsial. Induk selalu diturunkan dari telur, egg_id tidak bisa diganti."""
     chick = db.query(Chick).filter(Chick.id == chick_id).first()
     if not chick:
         raise HTTPException(status_code=404, detail="Anakan tidak ditemukan")
-    data = chick_data.model_dump()
+
+    data = chick_data.model_dump(exclude_unset=True)
     data.pop("id", None)
+
+    if "egg_id" in data:
+        if str(data["egg_id"]).strip() != str(chick.egg_id):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Telur asal anak {chick_id} tidak bisa diubah (masih {chick.egg_id})",
+            )
+        data.pop("egg_id")
+
+    if "status" in data:
+        data["status"] = canonical("chicks", "status", data["status"])
+
     for key, value in data.items():
         setattr(chick, key, value)
     db.commit()

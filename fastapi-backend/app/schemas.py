@@ -53,6 +53,20 @@ class BreederBase(BaseModel):
 class BreederCreate(BreederBase):
     id: Optional[str] = None
 
+class BreederUpdate(BaseModel):
+    """PUT parsial: semua field opsional supaya edit tidak 422 karena field wajib Create."""
+    id: Optional[str] = None
+    nama: Optional[str] = None
+    jenis_kelamin: Optional[str] = None
+    tanggal_lahir: Optional[date] = None
+    generasi: Optional[str] = None
+    varian_warna: Optional[str] = None
+    asal: Optional[str] = None
+    status: Optional[str] = None
+    foto_url: Optional[str] = None
+    parent_jantan_id: Optional[str] = None
+    parent_betina_id: Optional[str] = None
+
 class BreederResponse(BreederBase):
     id: str
     created_at: Optional[datetime] = None
@@ -96,6 +110,17 @@ class EggBase(BaseModel):
 class EggCreate(EggBase):
     id: Optional[str] = None
 
+class EggUpdate(BaseModel):
+    """PUT parsial telur: semua field opsional."""
+    id: Optional[str] = None
+    slot: Optional[int] = None
+    induk_jantan_id: Optional[str] = None
+    induk_betina_id: Optional[str] = None
+    tanggalMasuk: Optional[str] = None
+    fertilitas: Optional[str] = None
+    akhir: Optional[str] = None
+    catatan: Optional[str] = None
+
 class EggResponse(EggBase):
     id: str
     model_config = ConfigDict(from_attributes=True)
@@ -113,6 +138,22 @@ class ChickBase(BaseModel):
 
 class ChickCreate(ChickBase):
     id: Optional[str] = None
+
+class ChickUpdate(BaseModel):
+    """PUT parsial anakan.
+
+    `egg_id` sengaja ikut dideklarasi: nilai berbeda harus DITOLAK, bukan
+    diam-diam diabaikan — ID anakan berisi ID telur, jadi keduanya tidak boleh
+    dipisah. `induk_*` tidak ada di sini karena selalu diturunkan dari telur.
+    """
+    id: Optional[str] = None
+    egg_id: Optional[str] = None
+    tanggal_menetas: Optional[date] = None
+    berat_awal: Optional[float] = None
+    skor_kesehatan: Optional[str] = None
+    status: Optional[str] = None
+    foto_url: Optional[str] = None
+    catatan: Optional[str] = None
 
 class ChickResponse(ChickBase):
     id: str

@@ -115,13 +115,13 @@ Dokumentasi pendalaman tersedia di [`docs/backend_api_fastapi_mysql.md`](docs/ba
 - Threshold dapat diubah dari web: `lamp_thresh_on/off`, `humid_thresh_low/high`. Badge hak akses khusus Admin & Operator pada panel kontrol.
 
 ### 🥚 Nampan Telur 100 Slot
-- Grid visual slot 1–100, status `Fertil / Infertil / Belum dicek` × `Proses / Menetas / Gagal`, estimasi menetas otomatis **tanggalMasuk + 28 hari**.
+- Grid visual slot 1–100, status `Fertil / Infertil / Belum dicek` × `Proses / Menetas / Gagal Tetas / Dibuang`, estimasi menetas otomatis **tanggalMasuk + 28 hari**.
 - **Terakhir rotasi** di-resolve otomatis dari `rotation_logs` sukses terbaru (toleran multi-format timestamp), dengan hardening `503` saat DB tidak tersedia.
 
 ### 🧬 Silsilah (Breeder → Egg → Chick)
 - ID F0: `JB01` (jantan) / `BB01` (betina); keturunan & telur: `{Jantan}{Betina}-{NN}` cth. `JB01BB02-01`; anakan: `{egg_id}-C{NN}` cth. `JB01BB02-01-C01`.
 - Endpoint `lineage` (pohon orang tua rekursif) dan `compare?ids=A,B` (metrik fertilitas & anakan side-by-side, dihitung on-the-fly).
-- Aturan edit ketat di `silsilah.py`: field induk terkunci saat PUT, rename hanya suffix, ditolak bila ID dipakai / sudah punya turunan.
+- Aturan edit di `silsilah.py`: **ID tidak pernah berubah** (rename hanya suffix nomor, ditolak bila ID dipakai / sudah punya turunan). `jenis_kelamin`, `parent_*`, `induk_*` bebas diedit — tetapi mengubah jenis kelamin indukan yang masih dirujuk telur/anak ditolak `422` dengan daftar penghalangnya.
 
 ### 📹 CCTV Ganda + Health Check + Snapshot Otomatis
 - Feed inkubator (`/video_feed`) & kandang (`/kandang_feed`) via OpenCV MJPEG, proxy Nginx anti mixed-content, endpoint `/cctv_health` + relay status `:9001`.
@@ -237,12 +237,18 @@ Saat `VITE_API_BASE_URL` kosong, data tersimpan lokal di browser (mode luring); 
 │   │   ├── models.py             # 12 tabel SQLAlchemy (+ users.avatar_url, cctv_snapshots)
 │   │   ├── schemas.py            # Pydantic request/response (+ Upload, CctvSnapshot)
 │   │   ├── auth.py / silsilah.py # JWT + require_role + aturan ID silsilah
+│   │   ├── kanonik.py           # nilai kanonik kolom VARCHAR "enum" (migrasi + API)
+│   │   ├── migrate.py           # runner migrasi idempoten (python -m app.migrate)
+│   │   ├── verify_schema.py     # cek drift skema DB vs model
+│   │   ├── retention.py         # pembuangan baris lama (RETENTION_*)
 │   │   ├── storage.py            # Klien MinIO (whitelist folder, validasi gambar, public URL)
 │   │   ├── cctv_snapshot.py      # Job scraping /snapshot.jpg tiap 4 jam → MinIO + DB
 │   │   └── routers/              # auth, breeders, eggs, chicks, incubator,
 │   │                             # sales, finance, dashboard, alerts, users,
 │   │                             # storage (+ alias legacy /api/v1), cctv (12 file)
-│   ├── migrasi_storage_cctv.sql  # Migrasi sekali untuk DB existing (avatar_url + cctv_snapshots)
+│   ├── migrations/
+│   │   ├── README.md             # cara menambah & menjalankan migrasi
+│   │   └── legacy/               # arsip migrasi SQL manual lama (jangan dijalankan ulang)
 │   ├── Dockerfile                # python:3.12-slim + uvicorn :8000
 │   ├── requirements.txt
 │   └── .env.example              # Template tersanitasi (placeholder)
@@ -254,6 +260,9 @@ Saat `VITE_API_BASE_URL` kosong, data tersimpan lokal di browser (mode luring); 
 ├── esp32/
 │   └── incubator_controller.ino.example  # Template firmware (SHT31, relay 25/27/26, HiveMQ, RTSP bridge)
 │                                         # Salin jadi .ino lokal saat flashing — file .ino asli JANGAN di-commit
+├── scripts/
+│   └── db-backup.sh             # Backup/restore MySQL (root password dari env container, tidak di-commit)
+├── backups/                     # Dump *.sql.gz — GITIGNORED, berisi data pengguna
 ├── docs/
 │   ├── backend_api_fastapi_mysql.md
 │   └── FLOW.md
@@ -479,9 +488,22 @@ erDiagram
     users ||--o{ incubator_settings : "updated_by"
 ```
 
-**Ambang & notifikasi:** badge UI presisi ikut `incubator_settings` (dapat diubah via `PUT /api/incubator/settings` / form Pengaturan — baca selalu baris terbaru). Record `Alert` baru dibuat bila nilai melewati ambang + margin (suhu ±0.2°C, kelembaban ±2 poin). Migrasi terkait: `migrasi_silsilah.sql`, `migrasi_incubator_terakhir_rotasi.sql`, `migrasi_storage_cctv.sql` (wajib sekali untuk DB existing).
+**Ambang & notifikasi:** badge UI presisi ikut `incubator_settings` (dapat diubah via `PUT /api/incubator/settings` / form Pengaturan — baca selalu baris terbaru). Record `Alert` dibuat bila nilai melewati ambang + margin (suhu ±0.2°C, kelembaban ±2 poin), lalu **di-dedupe** per tipe dalam `ALERT_DEDUPE_MENIT` (default 30 menit) supaya tidak menumpuk. `GET /api/alerts` terpaginasi (`limit` default 100, `limit=0` = semua, `offset`, `unread`).
 
-Aturan ID (`silsilah.py`): kosong saat POST = auto-generate per pasangan/per telur; prefix lama (`MRK-*`, `EGG-*`, `CHK-*`) tetap diterima (legacy bypass); `jenis_kelamin/parent_*/induk_*/egg_id` terkunci saat PUT; rename hanya suffix nomor. Migrasi terkait: `migrasi_silsilah.sql`, `migrasi_incubator_terakhir_rotasi.sql`.
+**Migrasi & backup** (semua otomatis / sekali perintah, `migrasi_*.sql` lama sudah dipindah ke `fastapi-backend/migrations/legacy/` dan dilapisi runner):
+
+```bash
+python -m app.migrate --status      # langkah sudah/belum (container API)
+python -m app.migrate --dry-run     # lihat DDL tanpa menjalankan
+python -m app.migrate               # terapkan (juga jalan otomatis saat start: AUTO_MIGRATE=true)
+python -m app.verify_schema         # bandingkan information_schema vs model, exit 1 = drift
+./scripts/db-backup.sh              # dump ke backups/*.sql.gz sebelum migrasi apapun
+./scripts/db-backup.sh --restore backups/merak-<waktu>.sql.gz   # rollback
+```
+
+Retensi (`app/retention.py`, env `RETENTION_*`): `incubator_status` dibatasi 30 hari / 2000 baris terbaru dan `alerts` 90 hari, dijalankan saat startup + harian 03:17. Nilai kanonik kolom VARCHAR "enum" (mis. `BELI`→`Pembelian`, `FERTIL`→`Fertil`, `NEWBORN`→`newborn`, `resting`→`retired`) didefinisikan di `app/kanonik.py` dan dipakai bersama oleh migrasi data serta endpoint create/update.
+
+**Aturan ID (`silsilah.py`):** kosong saat POST = auto-generate per pasangan/per telur; prefix lama (`MRK-*`/`EGG-*`/`CHK-*`) tetap diterima (legacy bypass); **ID tidak pernah berubah** — rename hanya suffix nomor, ditolak `400` bila ID sudah dipakai atau objek sudah punya turunan. `jenis_kelamin/parent_*/induk_*` bebas diedit, dengan pengaman relasi: ganti jenis kelamin indukan yang masih dirujuk → `422` + daftar penghalang; ubah induk telur → `chicks.induk_*` ikut tersinkron; ganti `egg_id` anak → `422`; hapus telur yang punya anak → `400`.
 
 ---
 
@@ -756,7 +778,7 @@ curl -s http://localhost:8000/openapi.json | grep -c '"/api/storage/upload"'
 # angka > 0 = endpoint storage/cctv sudah live
 ```
 
-Prasyarat tiap deploy: `.env` produksi berisi `MINIO_*`/`CCTV_*`, dan migrasi SQL baru (mis. `migrasi_storage_cctv.sql`) sudah dijalankan sekali di MySQL.
+Prasyarat tiap deploy: `.env` produksi berisi `MINIO_*`/`CCTV_*`. Migrasi skema **tidak perlu langkah manual** — `python -m app.migrate` jalan otomatis saat API start (`AUTO_MIGRATE=true`), dan `python -m app.verify_schema` dipakai untuk memastikan skema DB sinkron dengan model. Jalankan `./scripts/db-backup.sh` sebelum deploy besar.
 
 Komponen:
 

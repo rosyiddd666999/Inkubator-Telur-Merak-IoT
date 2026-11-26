@@ -10,10 +10,144 @@ ID lama (EGG-001, MRK-..., CHK-...) dilewati validasi agar data lama tetap bisa 
 """
 
 import re
+from typing import List, Optional
+
+from .models import Breeder, Egg, Chick
 
 RE_F0 = re.compile(r"^(JB|BB)(\d{1,3})$")
 RE_ANAK = re.compile(r"^(JB\d{1,3})(BB\d{1,3})-(\d{1,3})$")
 RE_CHICK = re.compile(r"^(.+)-C(\d{1,3})$")
+
+JANTAN = "Jantan"
+BETINA = "Betina"
+_GENDER_ALIASES = {
+    "jantan": JANTAN, "male": JANTAN, "laki": JANTAN, "l": JANTAN,
+    "betina": BETINA, "female": BETINA, "bet": BETINA, "b": BETINA,
+}
+
+
+def normalize_gender(value) -> Optional[str]:
+    """'jantan'/'male'/'JANTAN' -> 'Jantan'. Nilai tak dikenal -> None."""
+    if value is None:
+        return None
+    key = str(value).strip().lower()
+    if not key:
+        return None
+    return _GENDER_ALIASES.get(key)
+
+
+def clean_optional_str(value) -> Optional[str]:
+    """String kosong/spasi dari form diubah jadi None (biar nullable DB aman)."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def validate_breeder_parent(db, child_id: Optional[str], parent_id: Optional[str],
+                            expected_gender: str, label: str) -> None:
+    """Validasi induk saat assign/diubah. Lempar ValueError (dipetakan ke 422).
+
+    Dilakukan hanya bila nilai berubah agar data lama yang tak lengkap
+    (mis. induk dihapus lama) tetap bisa disimpan apa adanya.
+    """
+    if not parent_id:
+        return
+    pid = str(parent_id).strip()
+    if not pid:
+        return
+    if child_id and pid == str(child_id).strip():
+        raise ValueError(f"{label} tidak boleh menunjuk diri sendiri")
+    parent = db.query(Breeder).filter(Breeder.id == pid).first()
+    if parent is None:
+        raise ValueError(f"{label} '{pid}' tidak ditemukan sebagai indukan")
+    gender = normalize_gender(parent.jenis_kelamin)
+    if gender is not None and gender != expected_gender:
+        raise ValueError(f"{label} '{pid}' berjenis kelamin {gender}, seharusnya {expected_gender}")
+    if child_id and is_ancestor(db, child_id, pid):
+        raise ValueError(f"{label} '{pid}' adalah turunan dari {child_id}, siklus silsilah")
+
+
+def validate_egg_parent(db, parent_id: Optional[str], expected_gender: str, label: str) -> None:
+    """Validasi induk telur (bila nilainya baru/berubah). Lempar ValueError."""
+    if not parent_id:
+        return
+    pid = str(parent_id).strip()
+    if not pid:
+        return
+    parent = db.query(Breeder).filter(Breeder.id == pid).first()
+    if parent is None:
+        raise ValueError(f"{label} '{pid}' tidak ditemukan sebagai indukan")
+    gender = normalize_gender(parent.jenis_kelamin)
+    if gender is not None and gender != expected_gender:
+        raise ValueError(f"{label} '{pid}' berjenis kelamin {gender}, seharusnya {expected_gender}")
+
+
+def is_ancestor(db, candidate_id: str, of_id: str) -> bool:
+    """True bila candidate_id adalah leluhur dari of_id (ikut rantai parent)."""
+    frontier = [str(of_id).strip()]
+    seen = set()
+    while frontier:
+        current = frontier.pop()
+        if not current or current in seen:
+            continue
+        seen.add(current)
+        if current == candidate_id:
+            return True
+        row = db.query(Breeder).filter(Breeder.id == current).first()
+        if row is None:
+            continue
+        frontier.extend([p for p in (row.parent_jantan_id, row.parent_betina_id) if p])
+    return False
+
+
+def telur_induk_refs(db, breeder_id: str):
+    """(jumlah telur, jumlah anak breeder) yang merujuk breeder_id."""
+    n_egg = db.query(Egg.id).filter(
+        (Egg.induk_jantan_id == breeder_id) | (Egg.induk_betina_id == breeder_id)
+    ).count()
+    n_child = db.query(Breeder.id).filter(
+        (Breeder.parent_jantan_id == breeder_id) | (Breeder.parent_betina_id == breeder_id)
+    ).count()
+    return n_egg, n_child
+
+
+def gender_role_conflicts(db, breeder_id, new_gender) -> List[str]:
+    """Daftar relasi yang jadi SALAH bila jenis kelamin breeder diubah.
+
+    Ambil kasusnya: MALE-02 dipakai sebagai `induk_jantan` pada EGG-004. Bila
+    jenis kelaminnya diubah jadi "Betina", telur itu otomatis punya induk
+    jantan berkelamin betina — relasi yang tidak mungkin. API menolak perubahan
+    ini dan menyebut relasi mana yang menghalangi, alih-alih menuliskan data
+    yang diam-diam menyimpang.
+
+    Daftar dikembalikan berupa teks siap tampil (maksimal 6 entri + sisa).
+    """
+    if new_gender == JANTAN:
+        salah = BETINA
+    elif new_gender == BETINA:
+        salah = JANTAN
+    else:
+        return []
+
+    refs: List[str] = []
+    for egg in db.query(Egg).filter(Egg.induk_jantan_id == breeder_id).all():
+        refs.append(("Jantan", f"induk jantan telur {egg.id}"))
+    for egg in db.query(Egg).filter(Egg.induk_betina_id == breeder_id).all():
+        refs.append(("Betina", f"induk betina telur {egg.id}"))
+    for child in db.query(Breeder).filter(Breeder.parent_jantan_id == breeder_id).all():
+        refs.append(("Jantan", f"parent jantan {child.id}"))
+    for child in db.query(Breeder).filter(Breeder.parent_betina_id == breeder_id).all():
+        refs.append(("Betina", f"parent betina {child.id}"))
+    for chick in db.query(Chick).filter(Chick.induk_jantan_id == breeder_id).all():
+        refs.append(("Jantan", f"induk jantan anakan {chick.id}"))
+    for chick in db.query(Chick).filter(Chick.induk_betina_id == breeder_id).all():
+        refs.append(("Betina", f"induk betina anakan {chick.id}"))
+
+    conflicts = [label for role, label in refs if role == salah]
+    if len(conflicts) > 6:
+        return conflicts[:6] + [f"... dan {len(conflicts) - 6} relasi lain"]
+    return conflicts
 
 
 def is_legacy(obj_id: str) -> bool:

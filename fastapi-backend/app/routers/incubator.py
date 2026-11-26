@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import OperationalError
@@ -23,6 +24,12 @@ router = APIRouter(prefix="/api/incubator", tags=["Incubator"])
 # ALERT_SUHU_MARGIN / ALERT_HUMIDITY_MARGIN di src/hooks/useIncubatorThresholds.js.
 ALERT_SUHU_MARGIN = 0.2  # °C
 ALERT_HUMIDITY_MARGIN = 2.0  # poin persen
+
+# Jendela dedupe (menit): selama masih ada alert TIPE SAMA yang belum dibaca
+# dari `ALERT_DEDUPE_MENIT` menit lalu, jangan insert baris baru — cukup
+# perbarui pesan & waktu. Tanpa ini tiap bacaan sensor yang melanggar ambang
+# membuat satu baris (terbukti 7.116 baris di produksi).
+ALERT_DEDUPE_MENIT = int(os.getenv("ALERT_DEDUPE_MENIT", "30"))
 
 
 def _parse_rotation_timestamp(raw) -> Optional[datetime]:
@@ -78,7 +85,7 @@ def check_and_create_alerts(db: Session, suhu: float, kelembapan: float):
         pesan = (f"Suhu {suhu}°C di luar batas notifikasi "
                  f"({suhu_min - ALERT_SUHU_MARGIN:.1f}-{suhu_max + ALERT_SUHU_MARGIN:.1f}°C "
                  f"dari setting {suhu_min}-{suhu_max}°C)")
-        alerts_to_create.append(Alert(tipe=AlertTipe.SUHU, pesan=pesan, level=level))
+        alerts_to_create.append((AlertTipe.SUHU, level, pesan))
 
     hum_min = float(settings.kelembapan_min)
     hum_max = float(settings.kelembapan_max)
@@ -87,13 +94,29 @@ def check_and_create_alerts(db: Session, suhu: float, kelembapan: float):
         pesan = (f"Kelembapan {kelembapan}% di luar batas notifikasi "
                  f"({hum_min - ALERT_HUMIDITY_MARGIN:.0f}-{hum_max + ALERT_HUMIDITY_MARGIN:.0f}% "
                  f"dari setting {hum_min}-{hum_max}%)")
-        alerts_to_create.append(Alert(tipe=AlertTipe.KELEMBAPAN, pesan=pesan, level=level))
+        alerts_to_create.append((AlertTipe.KELEMBAPAN, level, pesan))
 
-    for alert in alerts_to_create:
-        db.add(alert)
+    if not alerts_to_create:
+        return
 
-    if alerts_to_create:
-        db.commit()
+    # Dedupe: selama masih ada alert TIPE SAMA yang belum dibaca dalam
+    # ALERT_DEDUPE_MENIT menit, cukup perbarui pesan & waktu — jangan tambah
+    # baris baru. Tanpa ini tiap bacaan sensor melanggar ambang menambah 1 baris.
+    now = datetime.utcnow()
+    batas = now - timedelta(minutes=ALERT_DEDUPE_MENIT)
+    for tipe, level, pesan in alerts_to_create:
+        recent = (
+            db.query(Alert)
+            .filter(Alert.tipe == tipe, Alert.is_read.is_(False), Alert.created_at >= batas)
+            .first()
+        )
+        if recent is not None:
+            recent.pesan = pesan
+            recent.created_at = now
+            continue
+        db.add(Alert(tipe=tipe, pesan=pesan, level=level))
+
+    db.commit()
 
 
 @router.get("/settings", response_model=IncubatorSettingsResponse)

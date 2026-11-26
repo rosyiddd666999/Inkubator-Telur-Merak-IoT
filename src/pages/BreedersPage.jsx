@@ -243,9 +243,12 @@ export default function BreedersPage({ role }) {
                 />
               </FormField>
               <FormField label="Jenis Kelamin" htmlFor="b-jk" required>
-                <select id="b-jk" required value={formData.jenis_kelamin} onChange={(e) => handleChange("jenis_kelamin", e.target.value)} className="km-input" disabled={!!editingId} title={editingId ? "Jenis kelamin dikunci (prefix silsilah)" : ""}>
+                <select id="b-jk" required value={formData.jenis_kelamin} onChange={(e) => handleChange("jenis_kelamin", e.target.value)} className="km-input">
                   <option value="Jantan">Jantan</option>
                   <option value="Betina">Betina</option>
+                  {formData.jenis_kelamin && !["Jantan", "Betina"].includes(formData.jenis_kelamin) && (
+                    <option value={formData.jenis_kelamin}>{formData.jenis_kelamin} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
               <FormField label="Generasi" htmlFor="b-gen" required>
@@ -254,6 +257,9 @@ export default function BreedersPage({ role }) {
                   <option value="F1">F1</option>
                   <option value="F2">F2</option>
                   <option value="F3">F3</option>
+                  {formData.generasi && !["F0", "F1", "F2", "F3"].includes(formData.generasi) && (
+                    <option value={formData.generasi}>{formData.generasi} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
               <FormField label="Varian Warna" htmlFor="b-warna" required>
@@ -261,6 +267,9 @@ export default function BreedersPage({ role }) {
                   <option value="Hijau">Merak Hijau</option>
                   <option value="Biru">Merak Biru</option>
                   <option value="Putih">Merak Putih</option>
+                  {formData.varian_warna && !["Hijau", "Biru", "Putih"].includes(formData.varian_warna) && (
+                    <option value={formData.varian_warna}>{formData.varian_warna} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
               <FormField label="Asal" htmlFor="b-asal" required>
@@ -268,6 +277,9 @@ export default function BreedersPage({ role }) {
                   <option value="Tangkaran sendiri">Tangkaran Sendiri</option>
                   <option value="Pembelian">Pembelian</option>
                   <option value="Hibah">Hibah</option>
+                  {formData.asal && !["Tangkaran sendiri", "Pembelian", "Hibah"].includes(formData.asal) && (
+                    <option value={formData.asal}>{formData.asal} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
               <FormField label="Status" htmlFor="b-status" required>
@@ -276,25 +288,34 @@ export default function BreedersPage({ role }) {
                   <option value="retired">Retired</option>
                   <option value="sold">Terjual</option>
                   <option value="deceased">Mati</option>
+                  {formData.status && !["breeding", "retired", "sold", "deceased"].includes(formData.status) && (
+                    <option value={formData.status}>{formData.status} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
               <FormField label="Tanggal Lahir" htmlFor="b-tgl">
                 <input id="b-tgl" type="date" value={formData.tanggal_lahir} onChange={(e) => handleChange("tanggal_lahir", e.target.value)} className="km-input font-mono text-sm" />
               </FormField>
               <FormField label="Parent Jantan" htmlFor="b-pj">
-                <select id="b-pj" value={formData.parent_jantan_id} onChange={(e) => handleChange("parent_jantan_id", e.target.value)} className="km-input" disabled={!!editingId} title={editingId ? "Parent dikunci (prefix silsilah)" : ""}>
+                <select id="b-pj" value={formData.parent_jantan_id} onChange={(e) => handleChange("parent_jantan_id", e.target.value)} className="km-input">
                   <option value="">— Tidak ada —</option>
                   {jantanList.map((j) => (
                     <option key={j.id} value={j.id}>{j.id} — {j.nama || "Tanpa nama"}</option>
                   ))}
+                  {formData.parent_jantan_id && !jantanList.some((j) => j.id === formData.parent_jantan_id) && (
+                    <option value={formData.parent_jantan_id}>{formData.parent_jantan_id} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
               <FormField label="Parent Betina" htmlFor="b-pb">
-                <select id="b-pb" value={formData.parent_betina_id} onChange={(e) => handleChange("parent_betina_id", e.target.value)} className="km-input" disabled={!!editingId} title={editingId ? "Parent dikunci (prefix silsilah)" : ""}>
+                <select id="b-pb" value={formData.parent_betina_id} onChange={(e) => handleChange("parent_betina_id", e.target.value)} className="km-input">
                   <option value="">— Tidak ada —</option>
                   {betinaList.map((b) => (
                     <option key={b.id} value={b.id}>{b.id} — {b.nama || "Tanpa nama"}</option>
                   ))}
+                  {formData.parent_betina_id && !betinaList.some((b) => b.id === formData.parent_betina_id) && (
+                    <option value={formData.parent_betina_id}>{formData.parent_betina_id} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
               <div className="col-span-1 sm:col-span-2 lg:col-span-3">
@@ -321,7 +342,7 @@ export default function BreedersPage({ role }) {
             {editingId && (
               <div className="rounded-lg border border-dashed border-alpine-high bg-alpine-low/30 px-4 py-2.5 text-sm text-ink-secondary flex items-center gap-2">
                 <Icon name="lock" className="text-[18px] text-teal-600" />
-                <span>ID <strong className="font-mono text-ink-primary">{editingId}</strong> — prefix silsilah terkunci, hanya data lain yang bisa diubah.</span>
+                <span>ID <strong className="font-mono text-ink-primary">{editingId}</strong> tidak berubah saat edit — jenis kelamin, induk, dan data lain bebas diubah.</span>
               </div>
             )}
 
