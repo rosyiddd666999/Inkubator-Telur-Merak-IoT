@@ -54,5 +54,8 @@ esp32/*.ino
 *.zip
 *.tar.gz
 
+# Dump database (berisi data pengguna — jangan pernah masuk repo)
+backups/
+
 # OpenCode skills lokal
 opencode-skills/

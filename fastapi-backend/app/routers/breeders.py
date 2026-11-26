@@ -13,8 +13,9 @@ from ..schemas import (
 from ..auth import require_role
 from ..silsilah import (
     JANTAN, BETINA, clean_optional_str, normalize_gender,
-    validate_breeder_parent,
+    validate_breeder_parent, gender_role_conflicts,
 )
+from ..kanonik import canonical_pairs
 
 router = APIRouter(prefix="/api/breeders", tags=["Breeder"])
 
@@ -150,6 +151,8 @@ def create_breeder(breeder_data: BreederCreate, current_user=Depends(require_rol
     if gender is None:
         raise HTTPException(status_code=422, detail="Jenis kelamin harus 'Jantan' atau 'Betina'")
     data["jenis_kelamin"] = gender
+    # Samakan nilai enum-ish (asal/status/varian/generasi) ke kanonik.
+    canonical_pairs("breeders", data, ["generasi", "varian_warna", "asal", "status"])
 
     for key in ("parent_jantan_id", "parent_betina_id", "foto_url"):
         data[key] = clean_optional_str(data.get(key))
@@ -200,6 +203,20 @@ def update_breeder(
         if gender is None:
             raise HTTPException(status_code=422, detail="Jenis kelamin harus 'Jantan' atau 'Betina'")
         data["jenis_kelamin"] = gender
+        # Relasi yang sudah ada menentukan peran (induk jantan/betina). Ubah
+        # gender yang sudah dipakai relasi lain = data tidak mungkin benar
+        # dua-duanya, jadi tolak dengan menyebut penghalangnya.
+        lama = normalize_gender(breeder.jenis_kelamin)
+        if lama is not None and gender != lama:
+            konflik = gender_role_conflicts(db, breeder_id, gender)
+            if konflik:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(f"Jenis kelamin tidak bisa diubah {lama} -> {gender} "
+                            f"selama masih dirujuk: " + ", ".join(konflik)),
+                )
+
+    canonical_pairs("breeders", data, ["generasi", "varian_warna", "asal", "status"])
 
     for key in ("parent_jantan_id", "parent_betina_id", "foto_url"):
         if key in data:

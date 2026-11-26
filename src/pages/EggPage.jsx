@@ -22,6 +22,7 @@ const EMPTY_FORM = {
 
 export default function EggPage({ role }) {
   const [eggs, setEggs] = useState([]);
+  const [breeders, setBreeders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
@@ -40,7 +41,19 @@ export default function EggPage({ role }) {
 
   useEffect(() => {
     loadEggs();
+    loadBreeders();
   }, []);
+
+  // Daftar indukan dipakai oleh select di bawah (dulu free-text → typo baru
+  // ketahuan setelah submit). Gagal memuat tidak menghalangi edit telur.
+  const loadBreeders = async () => {
+    try {
+      const data = await fetchApi("/api/breeders");
+      setBreeders(Array.isArray(data) ? data : []);
+    } catch {
+      setBreeders([]);
+    }
+  };
 
   const loadEggs = async () => {
     try {
@@ -58,6 +71,10 @@ export default function EggPage({ role }) {
   const handleChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
+
+  // Induk dipilih dari daftar indukan sesuai kelamin, bukan diketik manual.
+  const jantanList = breeders.filter((b) => String(b.jenis_kelamin || "").toLowerCase() === "jantan");
+  const betinaList = breeders.filter((b) => String(b.jenis_kelamin || "").toLowerCase() === "betina");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -210,23 +227,37 @@ export default function EggPage({ role }) {
                 </select>
               </FormField>
 
-              <FormField label="ID Induk Jantan" htmlFor="induk_jantan_id">
-                <input
+              <FormField label="Induk Jantan" htmlFor="induk_jantan_id">
+                <select
                   id="induk_jantan_id"
                   value={formData.induk_jantan_id}
                   onChange={(e) => handleChange("induk_jantan_id", e.target.value)}
-                  className="km-input font-mono text-sm uppercase"
-                  placeholder="Contoh: JB01"
-                />
+                  className="km-input font-mono text-sm"
+                >
+                  <option value="">— Tidak ada —</option>
+                  {jantanList.map((j) => (
+                    <option key={j.id} value={j.id}>{j.id} — {j.nama || "Tanpa nama"}</option>
+                  ))}
+                  {formData.induk_jantan_id && !jantanList.some((j) => j.id === formData.induk_jantan_id) && (
+                    <option value={formData.induk_jantan_id}>{formData.induk_jantan_id} (nilai lama)</option>
+                  )}
+                </select>
               </FormField>
-              <FormField label="ID Induk Betina" htmlFor="induk_betina_id">
-                <input
+              <FormField label="Induk Betina" htmlFor="induk_betina_id">
+                <select
                   id="induk_betina_id"
                   value={formData.induk_betina_id}
                   onChange={(e) => handleChange("induk_betina_id", e.target.value)}
-                  className="km-input font-mono text-sm uppercase"
-                  placeholder="Contoh: BB02"
-                />
+                  className="km-input font-mono text-sm"
+                >
+                  <option value="">— Tidak ada —</option>
+                  {betinaList.map((b) => (
+                    <option key={b.id} value={b.id}>{b.id} — {b.nama || "Tanpa nama"}</option>
+                  ))}
+                  {formData.induk_betina_id && !betinaList.some((b) => b.id === formData.induk_betina_id) && (
+                    <option value={formData.induk_betina_id}>{formData.induk_betina_id} (nilai lama)</option>
+                  )}
+                </select>
               </FormField>
               <FormField label="Status Akhir" htmlFor="akhir" required>
                 <select

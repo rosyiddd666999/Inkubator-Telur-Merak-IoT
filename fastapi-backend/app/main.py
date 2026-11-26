@@ -34,6 +34,20 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+
+    # Migrasi DDL dulu (create_all hanya membuat tabel baru, tidak pernah
+    # mengubah yang sudah ada). Setiap langkah mengecek kondisi via
+    # information_schema, jadi aman diulang.
+    if os.getenv("AUTO_MIGRATE", "true").strip().lower() in ("0", "false", "no", "off"):
+        logger.warning("AUTO_MIGRATE dimatikan — pastikan skema DB sudah sesuai "
+                        "(python -m app.migrate --status)")
+    else:
+        try:
+            from .migrate import run_migrations
+            run_migrations(engine)
+        except Exception:
+            logger.exception("MIGRASI SKEMA GAGAL — jalankan: python -m app.migrate --status")
+
     try:
         ensure_bucket()
     except Exception:
@@ -43,19 +57,32 @@ async def lifespan(app: FastAPI):
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
         from .cctv_snapshot import get_cctv_settings, run_cctv_snapshot_job
+        from .retention import run_retention_job
 
-        if get_cctv_settings()["enabled"]:
-            scheduler = AsyncIOScheduler()
+        cctv_enabled = get_cctv_settings()["enabled"]
+        scheduler = AsyncIOScheduler()
+        if cctv_enabled:
             # Scraping CCTV incubator setiap 4 jam + sekali saat startup.
             scheduler.add_job(run_cctv_snapshot_job, "interval", hours=4, id="cctv-snapshot-4h")
-            scheduler.start()
+        # Pembersihan harian: status inkubator (append-only) & alert.
+        scheduler.add_job(run_retention_job, "cron", hour=3, minute=17, id="retention-daily")
+        scheduler.start()
+        if cctv_enabled:
             logger.info("CCTV snapshot scheduler aktif (tiap 4 jam)")
             try:
                 run_cctv_snapshot_job()
             except Exception:
                 logger.exception("CCTV snapshot awal gagal")
     except Exception:
-        logger.exception("Gagal start CCTV scheduler")
+        logger.exception("Gagal start scheduler")
+
+    # Buang baris lama (status inkubator & alert yang tumbuh tanpa batas).
+    try:
+        from .retention import run_retention_job
+        run_retention_job()
+    except Exception:
+        logger.exception("Retention saat startup gagal")
+
     db = next(get_db())
     try:
         settings = db.query(IncubatorSettings).first()

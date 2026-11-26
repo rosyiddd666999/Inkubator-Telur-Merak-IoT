@@ -10,9 +10,9 @@ ID lama (EGG-001, MRK-..., CHK-...) dilewati validasi agar data lama tetap bisa 
 """
 
 import re
-from typing import Optional
+from typing import List, Optional
 
-from .models import Breeder, Egg
+from .models import Breeder, Egg, Chick
 
 RE_F0 = re.compile(r"^(JB|BB)(\d{1,3})$")
 RE_ANAK = re.compile(r"^(JB\d{1,3})(BB\d{1,3})-(\d{1,3})$")
@@ -110,6 +110,44 @@ def telur_induk_refs(db, breeder_id: str):
         (Breeder.parent_jantan_id == breeder_id) | (Breeder.parent_betina_id == breeder_id)
     ).count()
     return n_egg, n_child
+
+
+def gender_role_conflicts(db, breeder_id, new_gender) -> List[str]:
+    """Daftar relasi yang jadi SALAH bila jenis kelamin breeder diubah.
+
+    Ambil kasusnya: MALE-02 dipakai sebagai `induk_jantan` pada EGG-004. Bila
+    jenis kelaminnya diubah jadi "Betina", telur itu otomatis punya induk
+    jantan berkelamin betina — relasi yang tidak mungkin. API menolak perubahan
+    ini dan menyebut relasi mana yang menghalangi, alih-alih menuliskan data
+    yang diam-diam menyimpang.
+
+    Daftar dikembalikan berupa teks siap tampil (maksimal 6 entri + sisa).
+    """
+    if new_gender == JANTAN:
+        salah = BETINA
+    elif new_gender == BETINA:
+        salah = JANTAN
+    else:
+        return []
+
+    refs: List[str] = []
+    for egg in db.query(Egg).filter(Egg.induk_jantan_id == breeder_id).all():
+        refs.append(("Jantan", f"induk jantan telur {egg.id}"))
+    for egg in db.query(Egg).filter(Egg.induk_betina_id == breeder_id).all():
+        refs.append(("Betina", f"induk betina telur {egg.id}"))
+    for child in db.query(Breeder).filter(Breeder.parent_jantan_id == breeder_id).all():
+        refs.append(("Jantan", f"parent jantan {child.id}"))
+    for child in db.query(Breeder).filter(Breeder.parent_betina_id == breeder_id).all():
+        refs.append(("Betina", f"parent betina {child.id}"))
+    for chick in db.query(Chick).filter(Chick.induk_jantan_id == breeder_id).all():
+        refs.append(("Jantan", f"induk jantan anakan {chick.id}"))
+    for chick in db.query(Chick).filter(Chick.induk_betina_id == breeder_id).all():
+        refs.append(("Betina", f"induk betina anakan {chick.id}"))
+
+    conflicts = [label for role, label in refs if role == salah]
+    if len(conflicts) > 6:
+        return conflicts[:6] + [f"... dan {len(conflicts) - 6} relasi lain"]
+    return conflicts
 
 
 def is_legacy(obj_id: str) -> bool:

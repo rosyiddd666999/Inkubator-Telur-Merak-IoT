@@ -2,11 +2,13 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from sqlalchemy import func
 from ..database import get_db
-from ..models import Egg
+from ..models import Egg, Chick
 from ..schemas import EggCreate, EggResponse, EggUpdate
 from ..auth import require_role
 from ..silsilah import JANTAN, BETINA, clean_optional_str, validate_egg_parent
+from ..kanonik import canonical_pairs
 
 router = APIRouter(prefix="/api/eggs", tags=["Egg"])
 
@@ -67,6 +69,8 @@ def create_egg(egg_data: EggCreate, current_user=Depends(require_role("pemilik",
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
 
+    canonical_pairs("eggs", data, ["fertilitas", "akhir"])
+
     egg_id = data.get("id")
     if not egg_id or not str(egg_id).strip():
         data["id"] = generate_egg_id(db, data.get("induk_jantan_id"), data.get("induk_betina_id"))
@@ -108,19 +112,32 @@ def update_egg(
             data[key] = clean_optional_str(data[key])
 
     # Validasi induk hanya bila nilai berubah (data lama yang tak lengkap tetap aman).
+    induk_berubah: list[str] = []
     if "induk_jantan_id" in data and data["induk_jantan_id"] != egg.induk_jantan_id:
         try:
             validate_egg_parent(db, data["induk_jantan_id"], JANTAN, "Induk jantan")
         except ValueError as err:
             raise HTTPException(status_code=422, detail=str(err))
+        induk_berubah.append("induk_jantan_id")
     if "induk_betina_id" in data and data["induk_betina_id"] != egg.induk_betina_id:
         try:
             validate_egg_parent(db, data["induk_betina_id"], BETINA, "Induk betina")
         except ValueError as err:
             raise HTTPException(status_code=422, detail=str(err))
+        induk_berubah.append("induk_betina_id")
+
+    canonical_pairs("eggs", data, ["fertilitas", "akhir"])
 
     for key, value in data.items():
         setattr(egg, key, value)
+
+    # Induk anak disalin dari telur saat create — ikut diperbarui supaya anak
+    # tidak menyimpan induk yang sudah tidak berlaku (satu sumber kebenaran).
+    if induk_berubah:
+        for chick in db.query(Chick).filter(Chick.egg_id == egg_id).all():
+            for key in induk_berubah:
+                setattr(chick, key, data[key])
+
     db.commit()
     db.refresh(egg)
     return egg
@@ -131,6 +148,14 @@ def delete_egg(egg_id: str, current_user=Depends(require_role("pemilik", "staff"
     egg = db.query(Egg).filter(Egg.id == egg_id).first()
     if not egg:
         raise HTTPException(status_code=404, detail="Telur tidak ditemukan")
+    # FK chicks.egg_id = RESTRICT: tanpa cek ini DELETE meledak jadi 500
+    # IntegrityError, bukan pesan yang bisa dimengerti user.
+    n_anak = db.query(func.count(Chick.id)).filter(Chick.egg_id == egg_id).scalar() or 0
+    if n_anak:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Telur ini sudah menghasilkan {n_anak} anakan. Hapus anaknya dulu.",
+        )
     db.delete(egg)
     db.commit()
     return {"message": f"Telur {egg_id} berhasil dihapus"}

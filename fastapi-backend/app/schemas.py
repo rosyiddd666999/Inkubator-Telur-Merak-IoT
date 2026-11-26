@@ -139,6 +139,22 @@ class ChickBase(BaseModel):
 class ChickCreate(ChickBase):
     id: Optional[str] = None
 
+class ChickUpdate(BaseModel):
+    """PUT parsial anakan.
+
+    `egg_id` sengaja ikut dideklarasi: nilai berbeda harus DITOLAK, bukan
+    diam-diam diabaikan — ID anakan berisi ID telur, jadi keduanya tidak boleh
+    dipisah. `induk_*` tidak ada di sini karena selalu diturunkan dari telur.
+    """
+    id: Optional[str] = None
+    egg_id: Optional[str] = None
+    tanggal_menetas: Optional[date] = None
+    berat_awal: Optional[float] = None
+    skor_kesehatan: Optional[str] = None
+    status: Optional[str] = None
+    foto_url: Optional[str] = None
+    catatan: Optional[str] = None
+
 class ChickResponse(ChickBase):
     id: str
     induk_jantan_id: Optional[str] = None
