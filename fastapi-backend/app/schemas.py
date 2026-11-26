@@ -51,7 +51,7 @@ class BreederBase(BaseModel):
     parent_betina_id: Optional[str] = None
 
 class BreederCreate(BreederBase):
-    id: str
+    id: Optional[str] = None
 
 class BreederResponse(BreederBase):
     id: str
@@ -86,15 +86,15 @@ class BreederCompareResponse(BaseModel):
 # --- Egg ---
 class EggBase(BaseModel):
     slot: int
-    induk_jantan_id: str
-    induk_betina_id: str
+    induk_jantan_id: Optional[str] = None
+    induk_betina_id: Optional[str] = None
     tanggalMasuk: str
     fertilitas: str = "Belum dicek"
     akhir: str = "Proses"
     catatan: Optional[str] = None
 
 class EggCreate(EggBase):
-    id: str
+    id: Optional[str] = None
 
 class EggResponse(EggBase):
     id: str
@@ -112,7 +112,7 @@ class ChickBase(BaseModel):
     catatan: Optional[str] = None
 
 class ChickCreate(ChickBase):
-    id: str
+    id: Optional[str] = None
 
 class ChickResponse(ChickBase):
     id: str

@@ -51,3 +51,6 @@ esp32/*.ino
 *.rar
 *.zip
 *.tar.gz
+
+# OpenCode skills lokal
+opencode-skills/

@@ -33,11 +33,11 @@ app = Flask(__name__)
 
 INCUBATOR_RTSP_URL = os.environ.get(
     "INCUBATOR_RTSP_URL",
-    "rtsp://admin:Admin123@127.0.0.1:8554/V_ENC_000",
+    "rtsp://admin:Merak71026@127.0.0.1:8554/V_ENC_000",
 )
 KANDANG_RTSP_URL = os.environ.get(
     "KANDANG_RTSP_URL",
-    "rtsp://admin:Admin123@127.0.0.1:8554/V_ENC_000",
+    "rtsp://admin:Merak71026@127.0.0.1:8554/V_ENC_000",
 )
 
 

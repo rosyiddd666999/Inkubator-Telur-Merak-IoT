@@ -98,13 +98,13 @@ export default function SettingsPage({ role, activeVariety, setActiveVariety, mq
       const latency = Math.round(performance.now() - startTime);
       setApiStatus({
         status: "online",
-        host: "api-merak.abdulrosyid.my.id",
+        host: "api-merak.ndalemkerto.com",
         latency
       });
     } catch (err) {
       setApiStatus({
         status: "offline",
-        host: "api-merak.abdulrosyid.my.id",
+        host: "api-merak.ndalemkerto.com",
         error: err.message
       });
     } finally {
@@ -165,8 +165,8 @@ export default function SettingsPage({ role, activeVariety, setActiveVariety, mq
                 )}
               </div>
             </div>
-            <p className="mt-1.5 font-mono text-[11px] text-ink-outline truncate" title={apiStatus?.host || "api-merak.abdulrosyid.my.id"}>
-              {apiStatus?.host || "api-merak.abdulrosyid.my.id"}
+            <p className="mt-1.5 font-mono text-[11px] text-ink-outline truncate" title={apiStatus?.host || "api-merak.ndalemkerto.com"}>
+              {apiStatus?.host || "api-merak.ndalemkerto.com"}
             </p>
           </div>
         </div>

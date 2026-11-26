@@ -87,12 +87,12 @@ class Breeder(Base):
     __tablename__ = "breeders"
     id = Column(String(50), primary_key=True, index=True)
     nama = Column(String(255), nullable=True)
-    jenis_kelamin = Column(SAEnum(Gender), nullable=False)
+    jenis_kelamin = Column(String(20), nullable=False)
     tanggal_lahir = Column(Date, nullable=True)
     generasi = Column(String(50), nullable=False)
     varian_warna = Column(String(100), nullable=False)
-    asal = Column(SAEnum(BreederAsal), nullable=False)
-    status = Column(SAEnum(BreederStatus), nullable=False, default=BreederStatus.BREEDING)
+    asal = Column(String(50), nullable=False)
+    status = Column(String(50), nullable=False, default="breeding")
     foto_url = Column(String(500), nullable=True)
     parent_jantan_id = Column(String(50), ForeignKey("breeders.id"), nullable=True)
     parent_betina_id = Column(String(50), ForeignKey("breeders.id"), nullable=True)
@@ -103,11 +103,11 @@ class Egg(Base):
     __tablename__ = "eggs"
     id = Column(String(50), primary_key=True, index=True)
     slot = Column(Integer, unique=True, index=True, nullable=False)
-    induk_jantan_id = Column(String(50), ForeignKey("breeders.id"), nullable=False)
-    induk_betina_id = Column(String(50), ForeignKey("breeders.id"), nullable=False)
+    induk_jantan_id = Column(String(50), ForeignKey("breeders.id"), nullable=True)
+    induk_betina_id = Column(String(50), ForeignKey("breeders.id"), nullable=True)
     tanggalMasuk = Column(String(50), nullable=False)
-    fertilitas = Column(SAEnum(Fertilitas), default=Fertilitas.BELUM_DICEK)
-    akhir = Column(SAEnum(EggAkhir), default=EggAkhir.PROSES)
+    fertilitas = Column(String(50), default="Belum dicek")
+    akhir = Column(String(50), default="Proses")
     catatan = Column(Text, nullable=True)
 
 
@@ -120,7 +120,7 @@ class Chick(Base):
     tanggal_menetas = Column(Date, nullable=False)
     berat_awal = Column(Numeric(6, 2), nullable=False)
     skor_kesehatan = Column(String(50), nullable=False)
-    status = Column(SAEnum(ChickStatus), nullable=False, default=ChickStatus.NEWBORN)
+    status = Column(String(50), nullable=False, default="newborn")
     foto_url = Column(String(500), nullable=True)
     catatan = Column(Text, nullable=True)
 
