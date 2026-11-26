@@ -21,7 +21,7 @@ CCTV_FOLDER = "cctv-images"
 
 
 def get_cctv_settings() -> dict:
-    base = os.getenv("CCTV_SNAPSHOT_URL", "http://cctv-gateway:5000/snapshot.jpg").rstrip("/")
+    base = os.getenv("CCTV_SNAPSHOT_URL", "http://cctv:5000/snapshot.jpg").rstrip("/")
     health = os.getenv("CCTV_HEALTH_URL", "")
     if not health:
         # Turunkan dari snapshot URL: http://host:port/snapshot.jpg -> http://host:port/health
@@ -31,7 +31,7 @@ def get_cctv_settings() -> dict:
             parts = urlsplit(base)
             health = urlunsplit((parts.scheme, parts.netloc, "/health", "", ""))
         except Exception:
-            health = "http://cctv-gateway:5000/health"
+            health = "http://cctv:5000/health"
     return {
         "snapshot_url": base,
         "health_url": health,

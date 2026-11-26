@@ -18,11 +18,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "https://api-merak.abdulrosyid.my.id",
+        target: "https://api-merak.ndalemkerto.com",
         changeOrigin: true,
       },
       "/auth": {
-        target: "https://api-merak.abdulrosyid.my.id",
+        target: "https://api-merak.ndalemkerto.com",
         changeOrigin: true,
       },
       "/video_feed": {

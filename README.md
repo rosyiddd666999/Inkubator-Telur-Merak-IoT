@@ -31,7 +31,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License MIT" />
 </p>
 
-> **Status deploy aktif:** API produksi di `https://api-merak.abdulrosyid.my.id` — dokumentasi interaktif (Swagger UI) tersedia di [`/docs`](https://api-merak.abdulrosyid.my.id/docs).
+> **Status deploy aktif:** API produksi di `https://api-merak.ndalemkerto.com` — dokumentasi interaktif (Swagger UI) tersedia di [`/docs`](https://api-merak.ndalemkerto.com/docs).
 
 ---
 
@@ -51,6 +51,8 @@
 - [12. Skema Database & Aturan Silsilah](#12-skema-database--aturan-silsilah)
 - [13. CCTV / RTSP Gateway](#13-cctv--rtsp-gateway)
   - [13.3 Alur Storage Gambar (Upload → DB → Render)](#133-alur-storage-gambar-upload--db--render)
+  - [13.4 Petunjuk Frontend (Web) & Mobile (Flutter)](#134-petunjuk-frontend-web--mobile-flutter)
+  - [13.5 Akses Publik via Cloudflare Tunnel](#135-akses-publik-via-cloudflare-tunnel)
 - [14. Firmware ESP32 (Template)](#14-firmware-esp32-template)
 - [15. Deployment Produksi](#15-deployment-produksi)
 - [16. Troubleshooting](#16-troubleshooting)
@@ -80,7 +82,7 @@ Dokumentasi pendalaman tersedia di [`docs/backend_api_fastapi_mysql.md`](docs/ba
 
 ### 2.1 Backend — Swagger UI (`/docs`)
 
-> Dokumentasi interaktif produksi: [`https://api-merak.abdulrosyid.my.id/docs`](https://api-merak.abdulrosyid.my.id/docs).
+> Dokumentasi interaktif produksi: [`https://api-merak.ndalemkerto.com/docs`](https://api-merak.ndalemkerto.com/docs).
 
 | Halaman Utama API | Uji Endpoint Telur |
 |---|---|
@@ -149,7 +151,7 @@ graph TD
     HiveMQ --> ESP32
 
     Web -- HTTPS REST X-API-Key + JWT --> Nginx[Nginx Reverse Proxy]
-    Nginx -- /api/* /auth/* --> API[FastAPI api-merak.abdulrosyid.my.id]
+    Nginx -- /api/* /auth/* --> API[FastAPI api-merak.ndalemkerto.com]
     API -- SQLAlchemy PyMySQL pool_pre_ping --> MySQL[(MySQL kampung_merak Docker)]
 
     Bardi[Kamera Bardi RTSP] -- TCP 554 via ESP32 Bridge Core0 --> Relay[relay_server.py :9000 + :554/:8554 + :9001 health]
@@ -284,7 +286,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 Startup otomatis: `Base.metadata.create_all`, seed 1 baris `incubator_settings` (37.0–38.0 °C, 55–65 %, rotasi 240 mnt), dan seed `USR-001` bila `FIRST_ADMIN_EMAIL/PASSWORD` diisi.
 
-> Untuk mengetes upload gambar lokal, MinIO harus jalan dan terjangkau (`MINIO_ENDPOINT`, default `http://localhost:9005`) — tanpa itu `POST /api/storage/upload` 500. Bucket `merak-storage` dibuat otomatis saat startup.
+> Untuk mengetes upload gambar lokal, 4 ENV MinIO wajib terisi (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET` — tanpa default hardcoded; kosong = `POST /api/storage/upload` 500 dengan pesan nama ENV yang kurang). `MINIO_ENDPOINT` harus terjangkau dari proses API (dari dalam container Docker, `localhost` = container itu sendiri). Bucket `merak-storage` dibuat otomatis saat startup.
 
 ### 7.2 CCTV Gateway — Relay + OpenCV
 ```bash
@@ -307,7 +309,7 @@ cp .env.example .env   # isi VITE_MQTT_*, VITE_API_BASE_URL, VITE_API_KEY_WEB, .
 npm run dev            # → http://localhost:5173
 npm run build          # → dist/ (di-track untuk deploy langsung ke STB)
 ```
-`vite.config.js` mem-proxy `/api,/auth → https://api-merak.abdulrosyid.my.id` agar bebas CORS saat dev, dan `/video_feed → http://127.0.0.1:5000`.
+`vite.config.js` mem-proxy `/api,/auth → https://api-merak.ndalemkerto.com` agar bebas CORS saat dev, dan `/video_feed → http://127.0.0.1:5000`.
 
 ---
 
@@ -324,7 +326,7 @@ VITE_RTSP_MJPEG_URL=/video_feed
 VITE_INKUBASI_START=2026-06-02T07:00:00
 VITE_ADMIN_ACCESS_CODE=<admin-code>
 VITE_OPERATOR_ACCESS_CODE=<operator-code>
-VITE_API_BASE_URL=https://api-merak.abdulrosyid.my.id
+VITE_API_BASE_URL=https://api-merak.ndalemkerto.com
 VITE_API_KEY_WEB=<api-key-web>
 ```
 
@@ -344,16 +346,18 @@ FIRST_ADMIN_PASSWORD=<admin-password>
 MQTT_URL=wss://<your-hivemq-cluster>.s1.eu.hivemq.cloud:8884/mqtt
 MQTT_USERNAME=<mqtt-username>
 MQTT_PASSWORD=<mqtt-password>
-# Storage MinIO/S3 (URL absolut untuk foto; kosongkan PUBLIC_BASE_URL bila sama dengan ENDPOINT/BUCKET)
-MINIO_ENDPOINT=http://localhost:9005
+# Storage MinIO/S3 — 4 var pertama WAJIB (tanpa default; kosong = upload 500 eksplisit).
+# MINIO_ENDPOINT wajib terjangkau dari DALAM container API (mis. http://minio-storage:9005,
+# bukan localhost). URL absolut untuk foto; PUBLIC_BASE_URL hanya untuk string akhir ke frontend.
+MINIO_ENDPOINT=http://minio-storage:9005
 MINIO_ACCESS_KEY=<minio-access-key>
 MINIO_SECRET_KEY=<minio-secret-key>
 MINIO_BUCKET=merak-storage
 MINIO_PUBLIC_BASE_URL=
 MAX_UPLOAD_BYTES=5242880
-# Snapshot CCTV otomatis tiap 4 jam (butuh service gateway bernama cctv-gateway, atau ganti host)
-CCTV_SNAPSHOT_URL=http://cctv-gateway:5000/snapshot.jpg
-CCTV_HEALTH_URL=http://cctv-gateway:5000/health
+# Snapshot CCTV otomatis tiap 4 jam (butuh service gateway bernama cctv, atau ganti host)
+CCTV_SNAPSHOT_URL=http://cctv:5000/snapshot.jpg
+CCTV_HEALTH_URL=http://cctv:5000/health
 CCTV_SNAPSHOT_SOURCE=incubator
 CCTV_SNAPSHOT_ENABLED=true
 ```
@@ -394,19 +398,19 @@ Topik tambahan di frontend (`motor_turns`, `candling_mode`, `alert_ack`) dicadan
 
 ## 10. REST API
 
-Base prod: `https://api-merak.abdulrosyid.my.id` — **semua request wajib header `X-API-Key`**, endpoint bertanda 🔒 wajib JWT Bearer. Swagger: `/docs`.
+Base prod: `https://api-merak.ndalemkerto.com` — **semua request wajib header `X-API-Key`**, endpoint bertanda 🔒 wajib JWT Bearer. Swagger: `/docs`.
 
 ```bash
 # Publik (cukup API Key)
-curl -H "X-API-Key: <api-key-web>" https://api-merak.abdulrosyid.my.id/api/eggs
-curl -H "X-API-Key: <api-key-web>" https://api-merak.abdulrosyid.my.id/api/incubator/status
+curl -H "X-API-Key: <api-key-web>" https://api-merak.ndalemkerto.com/api/eggs
+curl -H "X-API-Key: <api-key-web>" https://api-merak.ndalemkerto.com/api/incubator/status
 
 # Login lalu pakai token
-curl -X POST https://api-merak.abdulrosyid.my.id/auth/login \
+curl -X POST https://api-merak.ndalemkerto.com/auth/login \
   -H "Content-Type: application/json" -H "X-API-Key: <api-key-web>" \
   -d '{"email":"<admin-email>","password":"<admin-password>"}'
 curl -H "X-API-Key: <api-key-web>" -H "Authorization: Bearer <jwt>" \
-  https://api-merak.abdulrosyid.my.id/api/finance
+  https://api-merak.ndalemkerto.com/api/finance
 ```
 
 | Modul | Method & Endpoint | Akses |
@@ -487,7 +491,7 @@ Browser modern yang memuat web via HTTPS **tidak diizinkan** memuat stream RTSP/
 
 1. **Relay (`server/relay_server.py`):** terima ESP32 di `:9000`, layani OpenCV di `:554/:8554`, health JSON di `:9001/status|/health|/cctv_health` (`esp_connected`, `active_clients`). Deteksi cerdas: sesi 0-byte dianggap TCP ping dan **tidak** mereset ESP32.
 2. **Gateway (`server/rtsp_gateway_example.py`):** OpenCV baca RTSP → resize/kompresi JPEG → Flask multipart `multipart/x-mixed-replace` di `:5000/video_feed` (+ `/kandang_feed`, `/snapshot.jpg`, `/health`).
-3. **Nginx:** `/video_feed`, `/kandang_feed`, `/cctv_health` di-proxy ke `cctv-gateway:5000` dengan `proxy_buffering off` + timeout 86400s; frontend cukup pakai path relatif `/video_feed` agar lolos mixed-content HTTPS.
+3. **Nginx:** `/video_feed`, `/kandang_feed`, `/cctv_health` di-proxy ke `cctv:5000` dengan `proxy_buffering off` + timeout 86400s; frontend cukup pakai path relatif `/video_feed` agar lolos mixed-content HTTPS.
 
 ### 13.1 Menjalankan di Server Kandang (Produksi)
 
@@ -531,6 +535,8 @@ sudo systemctl reload nginx   # Ubuntu / Linux
 
 Scheduler APScheduler di FastAPI (`fastapi-backend/app/cctv_snapshot.py`) fetch `GET /snapshot.jpg` dari gateway tiap 4 jam, cek `/health` dulu (skip bila kamera offline agar tidak menyimpan standby-frame), lalu upload ke MinIO folder `cctv-images/` + catat di tabel `cctv_snapshots`. Riwayat: `GET /api/cctv-snapshots`. Konfigurasi: `CCTV_SNAPSHOT_URL`, `CCTV_HEALTH_URL`, `CCTV_SNAPSHOT_ENABLED` di `fastapi-backend/.env`.
 
+> Status operasional (terverifikasi 2026-09-22): scheduler terdaftar (`CCTV snapshot scheduler aktif`), run startup + trigger manual menghasilkan baris `cctv_snapshots` + objek MinIO, dan `url` publik dibuka mobile/frontend (`200` + `image/jpeg`). Syaratnya: image gateway harus memuat endpoint `/snapshot.jpg` (rebuild bila 404) dan `CCTV_SNAPSHOT_URL`/`CCTV_HEALTH_URL` harus resolve dari **dalam** container API (nama service tak dikenal = job skip diam-diam sebagai "offline").
+
 ### 13.3 Alur Storage Gambar (Upload → DB → Render)
 
 > Detail ringkas juga ada di §3 (fitur) dan §10 (endpoint) — bagian ini adalah alur lengkapnya.
@@ -564,12 +570,12 @@ sequenceDiagram
 | `profile-images` | `User.avatar_url` | `PUT /api/users/{id}` | 🔒 `pemilik` |
 | `cctv-images` | `CctvSnapshot.url` | Otomatis tiap 4 jam — jangan upload manual | — |
 
-**Aturan validasi upload:** tipe `image/jpeg/png/webp/gif` saja, maks **5MB** (`MAX_UPLOAD_BYTES`), nama file di-generate UUID agar tidak tabrakan, bucket `merak-storage` dibuat otomatis saat startup bila belum ada (`ensure_bucket`).
+**Aturan validasi upload:** tipe `image/jpeg/png/webp/gif` saja, maks **5MB** (`MAX_UPLOAD_BYTES`), nama file di-generate UUID agar tidak tabrakan, bucket `merak-storage` dibuat otomatis saat startup bila belum ada (`ensure_bucket`). 4 ENV MinIO wajib tanpa default (`REQUIRED_MINIO_VARS` di `storage.py`) — kosong = 500 eksplisit menyebut nama ENV yang kurang, bukan crash misterius.
 
 **Contoh request:**
 
 ```bash
-curl -X POST https://api-merak.abdulrosyid.my.id/api/storage/upload \
+curl -X POST https://api-merak.ndalemkerto.com/api/storage/upload \
   -H "X-API-Key: <api-key-web>" \
   -H "Authorization: Bearer <jwt-pemilik-atau-staff>" \
   -F "folder=breeders-images" \
@@ -586,6 +592,125 @@ curl -X POST https://api-merak.abdulrosyid.my.id/api/storage/upload \
 - Nilai `null` = belum ada foto → tampilkan placeholder, jangan render string kosong.
 - `object_key` hanya untuk hapus/migrasi, jangan dipakai untuk render.
 - `MINIO_PUBLIC_BASE_URL` wajib **HTTPS publik** (bukan `http://localhost:9005`) agar lolos mixed-content di web HTTPS. Detail keputusan: lihat riwayat diskusi absolut-vs-relatif (diputuskan: absolut + `object_key` pendamping).
+
+### 13.4 Petunjuk Frontend (Web) & Mobile (Flutter)
+
+#### 13.4.1 Auth per klien
+
+| Klien | Header `X-API-Key` | Token JWT disimpan di |
+|---|---|---|
+| Web (React, `utils/api.js`) | `API_KEY_WEB` (`VITE_API_KEY_WEB`) | `localStorage` (`jwt_token`) |
+| Mobile (Flutter) | `API_KEY_ANDROID` | `flutter_secure_storage` (jangan `shared_preferences` untuk token) |
+
+Alur: `POST /auth/login` (body `{email, password}` + header `X-API-Key`) → simpan `access_token` → setiap request berikutnya kirim **kedua** header:
+`X-API-Key: <key>` dan `Authorization: Bearer <token>`. Tanpa API key → 401; tanpa/expired JWT di endpoint 🔒 → 401/403.
+
+#### 13.4.2 Upload foto (web — selaras `fetchApi`)
+
+> Status UI web saat ini: `BreedersPage`/`ChicksPage` sudah **menampilkan** foto (`<img src={foto_url}>` di list, detail, dan silsilah dengan fallback `/assets/placeholder-peacock.jpg`), tetapi form-nya masih **input teks URL** (paste manual). Snippet di bawah adalah pola resmi untuk memasang file-picker agar mengisi otomatis — belum terpasang di UI, pakai bila membangunnya.
+
+```js
+async function uploadBreederPhoto(file, breederId) {
+  if (file.size > 5 * 1024 * 1024) throw new Error("Maksimal 5MB");
+  const form = new FormData();
+  form.append("folder", "breeders-images"); // chicks-images | profile-images
+  form.append("file", file);
+  const res = await fetch(`${API_BASE_URL}/api/storage/upload`, {
+    method: "POST",
+    headers: { "X-API-Key": API_KEY_WEB, "Authorization": `Bearer ${token}` },
+    body: form, // jangan set Content-Type manual (boundary otomatis)
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const { url, object_key } = await res.json();
+  // Langkah 2 (wajib): tempelkan URL ke data
+  await fetchApi(`/api/breeders/${breederId}`, {
+    method: "PUT",
+    body: JSON.stringify({ /* ...seluruh field breeder... */ foto_url: url }),
+  });
+  return { url, object_key };
+}
+// Render: <img src={breeder.foto_url ?? "/placeholder-merak.png"} />
+```
+
+#### 13.4.3 Upload foto (Flutter/Dart)
+
+```dart
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+Future<Map<String, String>> uploadPhoto(String filePath, String folder) async {
+  final req = http.MultipartRequest(
+    'POST', Uri.parse('$baseUrl/api/storage/upload'));
+  req.headers['X-API-Key'] = apiKeyAndroid;
+  req.headers['Authorization'] = 'Bearer $jwt';
+  req.fields['folder'] = folder; // breeders-images | chicks-images | profile-images
+  req.files.add(await http.MultipartFile.fromPath('file', filePath));
+  final res = await req.send();
+  final body = jsonDecode(await res.stream.bytesToString());
+  if (res.statusCode != 200) throw Exception(body['detail'] ?? 'Upload gagal');
+  // body['url'] → PUT ke foto_url/avatar_url; body['object_key'] → simpan untuk hapus
+  return {'url': body['url'], 'objectKey': body['object_key']};
+}
+
+// Render (dengan placeholder + error fallback):
+// Image.network(breeder.fotoUrl ?? placeholderUrl,
+//   errorBuilder: (_, __, ___) => Image.asset('assets/placeholder-merak.png'))
+// Produksi: pertimbangkan cached_network_image agar galeri CCTV tidak download ulang.
+```
+
+#### 13.4.4 CCTV di mobile
+
+```dart
+// 1. Status kamera (boolean, bukan URL):
+// GET /cctv_health → json['incubator_reachable'] == true ? live : offline
+// 2. Galeri snapshot (key gambar: 'url'):
+// GET /api/cctv-snapshots?limit=50 → List, render Image.network(item['url'])
+```
+
+Batasan: `/cctv_health` **tidak** memuat URL gambar (hanya status + nama endpoint). Live MJPEG full-motion (`/video_feed`) di Flutter butuh WebView atau paket MJPEG khusus — di luar cakupan panduan ini.
+
+#### 13.4.5 Status implementasi per platform (terverifikasi 2026-09-22)
+
+| Kemampuan | Web (React repo ini) | Mobile (Flutter) |
+|---|---|---|
+| Render foto induk/anak | ✅ Sudah (`BreedersPage`, `ChicksPage`, lineage + placeholder) | ✅ Terverifikasi `Image.network` ke domain publik |
+| Upload via file-picker | ❌ Belum (form masih input URL manual) — pakai pola §13.4.2 bila membangun | ✅ Via API (§13.4.3), terverifikasi 200 + `url` publik |
+| Render avatar user | ❌ Belum ada komponen avatar | Via `avatar_url` (nullable → placeholder) |
+| Galeri snapshot CCTV | ❌ Belum ada halaman galeri | ✅ Via `GET /api/cctv-snapshots` + `Image.network(item['url'])` |
+| Live MJPEG | ✅ `<img src="/video_feed">` | Butuh WebView/paket MJPEG khusus |
+
+#### 13.4.6 Checklist pitfalls (web + mobile)
+
+- Cek ukuran file di klien (≤5MB) **sebelum** upload agar tidak boros kuota.
+- `PUT` breeder/chick butuh **full body** (semua field wajib) — ambil dulu via `GET`, ubah `foto_url`-nya, kirim balik.
+- Saat ganti foto: `DELETE /api/storage/delete?object_key=...` file lama dulu (aplikasi tidak auto-hapus).
+- Production wajib HTTPS di semua URL gambar (mixed-content memblokir `<img>`; Android butuh `usesCleartextTraffic` dan iOS butuh pengecualian ATS bila masih HTTP).
+- `null` → placeholder; jangan pernah render `object_key` sebagai gambar.
+
+### 13.5 Akses Publik via Cloudflare Tunnel
+
+Domain publik (`https://storage-merak.ndalemkerto.com/merak-storage/...`, terverifikasi 200 + `image/jpeg` dari mobile/frontend) dilayani via tunnel `5236edb3...` dengan prinsip: **setiap hostname wajib punya entri ingress sendiri** — tanpa entri, request jatuh ke catch-all `http_status:404` meskipun MinIO sehat (bukti: `curl` langsung ke MinIO 200, via domain 404 tanpa header `Server: MinIO`).
+
+Tabel ingress produksi (catch-all wajib terakhir):
+
+| Hostname | Service | Catatan |
+|---|---|---|
+| `merak.ndalemkerto.com` | `http://kampung-merak-frontend:80` | — |
+| `api-merak.ndalemkerto.com` | `http://kampung-merak-api:8000` | — |
+| `cctv-merak.ndalemkerto.com` | `http://host.docker.internal:5000` | Pola alamat host dari dalam container |
+| `storage-merak.ndalemkerto.com` | `http://host.docker.internal:9005` | **S3 API (9005), bukan console (9001/9002)**; path `/merak-storage/...` diteruskan utuh (path-style) |
+
+Aturan alamat service (pelajaran insiden 404):
+- Dari **dalam container** cloudflared: pakai `host.docker.internal:<port-publish>` (nama container lain tidak resolve kecuali se-network; butuh `extra_hosts: host.docker.internal:host-gateway`).
+- Dari **proses host**: pakai `http://127.0.0.1:<port-publish>`.
+- Jangan campur: port console MinIO (9001) tidak melayani objek S3.
+
+File config live (jangan salah file — pernah terjadi edit file yang tidak dibaca siapa pun):
+- Container `kampung-merak-cloudflared` ← bind-mount `/home/edy/.cloudflared/config.yml` (milik user, bisa edit langsung + `docker restart kampung-merak-cloudflared`).
+- Proses host ← `/etc/cloudflared/config.yml` (milik root, perlu sudo; sinkronkan isinya bila kedua replika berjalan agar tidak 404 intermiten).
+- Satu replika unauthorized (token basi, log `Unauthorized: Tunnel not found`) = bangkai: hentikan, jangan biarkan berebut satu tunnel ID.
+
+Setelah ubah ingress: restart replika yang bersangkutan, verifikasi dengan cache-buster (`?x=...` memaksa MISS), syarat lolos `200` + `Server: MinIO` + `Content-Type: image/jpeg`, lalu purge `/merak-storage/*` di dashboard Cloudflare (error 404 di-cache edge ~4 jam).
 
 ---
 
@@ -624,7 +749,7 @@ npm run build          # hasil ke dist/ (di-track untuk STB)
 
 # Di server:
 git pull
-cd /home/edy/merak/backend   # sesuaikan path checkout di server
+cd /home/edy/merak   # sesuaikan path checkout di server
 docker compose up -d --build api   # --build WAJIB agar kode baru masuk image
 docker compose ps
 curl -s http://localhost:8000/openapi.json | grep -c '"/api/storage/upload"'
@@ -657,7 +782,12 @@ Komponen:
 | Badge kuning tapi tidak ada notifikasi | Perilaku normal: nilai di zona margin (suhu ±0.2°C, humidity ±2 poin di luar ambang) | Notifikasi/record Alert baru muncul bila melewati margin; cek `GET /api/incubator/settings` untuk ambang aktif |
 | Badge masih pakai ambang lama setelah update DB | Frontend baca sekali saat mount | Refresh halaman (hook `useIncubatorThresholds` fetch ulang) atau simpan via form Pengaturan agar auto-refresh |
 | Upload `400 Folder tidak valid` | Nama folder salah | Pakai persis: `breeders-images`, `chicks-images`, `profile-images` (`cctv-images` otomatis) |
-| Snapshot CCTV tidak bertambah | Gateway tidak terjangkau / kamera offline / job disabled | Cek `CCTV_SNAPSHOT_URL` (nama service `cctv-gateway` harus se-network), `/health` gateway, dan `CCTV_SNAPSHOT_ENABLED=true`; job skip diam-diam saat offline |
+| Upload `500 Konfigurasi MinIO belum lengkap` | ENV MinIO kurang di container (tanpa default hardcoded) | Isi `MINIO_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET` di `.env`, lalu recreate (`up -d --force-recreate`; `up -d` biasa tidak membaca ulang `env_file`) |
+| Upload `500 Could not connect to endpoint` | `MINIO_ENDPOINT` tak terjangkau dari DALAM container | Jangan `localhost` (di container = dirinya sendiri); pakai nama service se-network / `host.docker.internal` / IP host; cek se-network via `docker inspect` |
+| URL gambar domain 404 tapi direct MinIO 200 | Hostname tanpa entri ingress tunnel (jatuh ke catch-all) | Tambah hostname → service S3 `:9005` (lihat §13.5); verifikasi pakai `?x=` + header `Server: MinIO`; purge cache Cloudflare |
+| Mobile 401 di semua endpoint | Salah key: pakai `API_KEY_WEB` di Flutter | Mobile wajib `API_KEY_ANDROID` + `Authorization: Bearer` (§13.4.1) |
+| `Image.network` blank padahal URL 200 di browser | HTTP cleartext / cache | Wajib HTTPS publik; Android `usesCleartextTraffic`, iOS ATS exception bila masih HTTP; pakai `errorBuilder` + `cached_network_image` |
+| Snapshot CCTV tidak bertambah | Gateway tidak terjangkau / kamera offline / job disabled | Cek `CCTV_SNAPSHOT_URL` (nama service `cctv` harus se-network), `/health` gateway, dan `CCTV_SNAPSHOT_ENABLED=true`; job skip diam-diam saat offline |
 
 ---
 
@@ -691,11 +821,11 @@ Proyek ini dilisensikan di bawah **MIT License** — lihat file [`LICENSE`](LICE
 
 - **Repository utama:** [rosyiddd666999/backend-merak](https://github.com/rosyiddd666999/backend-merak)
 - **Kontributor:** [PrasetyaRiski/kampung_merak](https://github.com/PrasetyaRiski/kampung_merak)
-- **API produksi:** [`https://api-merak.abdulrosyid.my.id`](https://api-merak.abdulrosyid.my.id) — Swagger: [`/docs`](https://api-merak.abdulrosyid.my.id/docs)
+- **API produksi:** [`https://api-merak.ndalemkerto.com`](https://api-merak.ndalemkerto.com) — Swagger: [`/docs`](https://api-merak.ndalemkerto.com/docs)
 - **Tim:** Kampung Merak & Mitra Pengembang — modul IoT, backend, frontend, dan firmware ESP32.
 
 ---
 
 ## 🇬🇧 English Summary
 
-**Kampung Merak** is an IoT dashboard for peacock-egg incubators: live telemetry (ESP32 + SHT31 → HiveMQ → React WSS) with DB-driven 3-state badges (Normal / silent yellow Warning in margin / Perhatian + Alert record beyond margin: ±0.2°C, ±2pp humidity), remote actuator control (heater lamp, mist maker, egg-tray motor with adjustable thresholds), pedigree tracking (`Breeder → Egg → Chick` with generative IDs), dual CCTV live feeds (Bardi RTSP → ESP32 bridge → TCP relay → OpenCV MJPEG → Nginx) plus automatic snapshots every 4 hours to MinIO, MinIO/S3 image storage (absolute URLs ready for `<img>`/`Image.network`), sales/finance, and a hardened FastAPI + MySQL backend (`X-API-Key` + JWT, CORS, rate-limit). Main repo: `rosyiddd666999/backend-merak` (contributor: `PrasetyaRiski/kampung_merak`), production API: `https://api-merak.abdulrosyid.my.id`, license: MIT. See sections above for architecture, MQTT contract, REST endpoints, RBAC matrix, and deployment.
+**Kampung Merak** is an IoT dashboard for peacock-egg incubators: live telemetry (ESP32 + SHT31 → HiveMQ → React WSS) with DB-driven 3-state badges (Normal / silent yellow Warning in margin / Perhatian + Alert record beyond margin: ±0.2°C, ±2pp humidity), remote actuator control (heater lamp, mist maker, egg-tray motor with adjustable thresholds), pedigree tracking (`Breeder → Egg → Chick` with generative IDs), dual CCTV live feeds (Bardi RTSP → ESP32 bridge → TCP relay → OpenCV MJPEG → Nginx) plus automatic snapshots every 4 hours to MinIO, MinIO/S3 image storage (absolute URLs ready for `<img>`/`Image.network`), sales/finance, and a hardened FastAPI + MySQL backend (`X-API-Key` + JWT, CORS, rate-limit). Main repo: `rosyiddd666999/backend-merak` (contributor: `PrasetyaRiski/kampung_merak`), production API: `https://api-merak.ndalemkerto.com`, license: MIT. See sections above for architecture, MQTT contract, REST endpoints, RBAC matrix, and deployment.

@@ -101,7 +101,7 @@ app = FastAPI(title="Kampung Merak API", version="1.0.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "https://abdulrosyid.my.id")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "https://ndalemkerto.com")
 origins = [o.strip() for o in CORS_ORIGINS.split(",")]
 origins.extend(["http://localhost:3000", "http://localhost:8000"])
 
@@ -157,6 +157,8 @@ app.openapi = custom_openapi
 
 @app.middleware("http")
 async def api_key_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if request.url.path in ["/docs", "/openapi.json", "/redoc", "/"]:
         return await call_next(request)
 
