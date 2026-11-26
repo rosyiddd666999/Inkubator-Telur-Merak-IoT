@@ -8,8 +8,13 @@ from ..models import Breeder, Egg, Chick, Fertilitas
 from ..schemas import (
     BreederCreate, BreederResponse, BreederDetailResponse,
     BreederLineage, BreederCompareItem, BreederCompareResponse,
+    BreederUpdate,
 )
 from ..auth import require_role
+from ..silsilah import (
+    JANTAN, BETINA, clean_optional_str, normalize_gender,
+    validate_breeder_parent,
+)
 
 router = APIRouter(prefix="/api/breeders", tags=["Breeder"])
 
@@ -141,6 +146,19 @@ def get_breeder_lineage(breeder_id: str, db: Session = Depends(get_db)):
 @router.post("", response_model=BreederResponse, status_code=201)
 def create_breeder(breeder_data: BreederCreate, current_user=Depends(require_role("pemilik", "staff")), db: Session = Depends(get_db)):
     data = breeder_data.model_dump()
+    gender = normalize_gender(data.get("jenis_kelamin"))
+    if gender is None:
+        raise HTTPException(status_code=422, detail="Jenis kelamin harus 'Jantan' atau 'Betina'")
+    data["jenis_kelamin"] = gender
+
+    for key in ("parent_jantan_id", "parent_betina_id", "foto_url"):
+        data[key] = clean_optional_str(data.get(key))
+    try:
+        validate_breeder_parent(db, None, data["parent_jantan_id"], JANTAN, "Parent jantan")
+        validate_breeder_parent(db, None, data["parent_betina_id"], BETINA, "Parent betina")
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+
     breeder_id = data.get("id")
     if not breeder_id or not str(breeder_id).strip():
         data["id"] = generate_breeder_id(
@@ -155,11 +173,6 @@ def create_breeder(breeder_data: BreederCreate, current_user=Depends(require_rol
         if existing:
             raise HTTPException(status_code=400, detail="ID breeder sudah digunakan")
 
-    if not data.get("parent_jantan_id") or not str(data["parent_jantan_id"]).strip():
-        data["parent_jantan_id"] = None
-    if not data.get("parent_betina_id") or not str(data["parent_betina_id"]).strip():
-        data["parent_betina_id"] = None
-
     breeder = Breeder(**data)
     db.add(breeder)
     db.commit()
@@ -168,16 +181,42 @@ def create_breeder(breeder_data: BreederCreate, current_user=Depends(require_rol
 
 
 @router.put("/{breeder_id}", response_model=BreederResponse)
-def update_breeder(breeder_id: str, breeder_data: BreederCreate, current_user=Depends(require_role("pemilik", "staff")), db: Session = Depends(get_db)):
+def update_breeder(
+    breeder_id: str,
+    breeder_data: BreederUpdate,
+    current_user=Depends(require_role("pemilik", "staff")),
+    db: Session = Depends(get_db),
+):
+    """Edit bebas (termasuk jenis kelamin & parent). ID tidak pernah berubah."""
     breeder = db.query(Breeder).filter(Breeder.id == breeder_id).first()
     if not breeder:
         raise HTTPException(status_code=404, detail="Breeder tidak ditemukan")
-    data = breeder_data.model_dump()
+
+    data = breeder_data.model_dump(exclude_unset=True)
     data.pop("id", None)
-    if not data.get("parent_jantan_id") or not str(data["parent_jantan_id"]).strip():
-        data["parent_jantan_id"] = None
-    if not data.get("parent_betina_id") or not str(data["parent_betina_id"]).strip():
-        data["parent_betina_id"] = None
+
+    if "jenis_kelamin" in data:
+        gender = normalize_gender(data["jenis_kelamin"])
+        if gender is None:
+            raise HTTPException(status_code=422, detail="Jenis kelamin harus 'Jantan' atau 'Betina'")
+        data["jenis_kelamin"] = gender
+
+    for key in ("parent_jantan_id", "parent_betina_id", "foto_url"):
+        if key in data:
+            data[key] = clean_optional_str(data[key])
+
+    # Validasi hanya bila nilai berubah — data lama yang tak lengkap tidak menghalangi edit lain.
+    if "parent_jantan_id" in data and data["parent_jantan_id"] != breeder.parent_jantan_id:
+        try:
+            validate_breeder_parent(db, breeder_id, data["parent_jantan_id"], JANTAN, "Parent jantan")
+        except ValueError as err:
+            raise HTTPException(status_code=422, detail=str(err))
+    if "parent_betina_id" in data and data["parent_betina_id"] != breeder.parent_betina_id:
+        try:
+            validate_breeder_parent(db, breeder_id, data["parent_betina_id"], BETINA, "Parent betina")
+        except ValueError as err:
+            raise HTTPException(status_code=422, detail=str(err))
+
     for key, value in data.items():
         setattr(breeder, key, value)
     db.commit()

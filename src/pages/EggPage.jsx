@@ -204,6 +204,9 @@ export default function EggPage({ role }) {
                   <option value="Belum dicek">Belum Dicek</option>
                   <option value="Fertil">Fertil</option>
                   <option value="Infertil">Infertil / Kosong</option>
+                  {formData.fertilitas && !["Belum dicek", "Fertil", "Infertil"].includes(formData.fertilitas) && (
+                    <option value={formData.fertilitas}>{formData.fertilitas} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
 
@@ -214,8 +217,6 @@ export default function EggPage({ role }) {
                   onChange={(e) => handleChange("induk_jantan_id", e.target.value)}
                   className="km-input font-mono text-sm uppercase"
                   placeholder="Contoh: JB01"
-                  disabled={!!editingId}
-                  title={editingId ? "Induk dikunci (prefix silsilah)" : ""}
                 />
               </FormField>
               <FormField label="ID Induk Betina" htmlFor="induk_betina_id">
@@ -225,8 +226,6 @@ export default function EggPage({ role }) {
                   onChange={(e) => handleChange("induk_betina_id", e.target.value)}
                   className="km-input font-mono text-sm uppercase"
                   placeholder="Contoh: BB02"
-                  disabled={!!editingId}
-                  title={editingId ? "Induk dikunci (prefix silsilah)" : ""}
                 />
               </FormField>
               <FormField label="Status Akhir" htmlFor="akhir" required>
@@ -241,6 +240,9 @@ export default function EggPage({ role }) {
                   <option value="Menetas">Berhasil Menetas</option>
                   <option value="Gagal Tetas">Gagal Menetas</option>
                   <option value="Dibuang">Dibuang (Infertil)</option>
+                  {formData.akhir && !["Proses", "Menetas", "Gagal Tetas", "Dibuang"].includes(formData.akhir) && (
+                    <option value={formData.akhir}>{formData.akhir} (nilai lama)</option>
+                  )}
                 </select>
               </FormField>
             </FormGrid>
